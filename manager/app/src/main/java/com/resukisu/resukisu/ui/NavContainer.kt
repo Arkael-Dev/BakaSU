@@ -94,7 +94,6 @@ import com.resukisu.resukisu.ui.util.LocalPortraitState
 import com.resukisu.resukisu.ui.util.LocalSnackbarHost
 import com.resukisu.resukisu.ui.util.LocalStretchOverscrollCompensationState
 import com.resukisu.resukisu.ui.util.rememberDeviceCornerRadius
-import com.resukisu.resukisu.ui.viewmodel.MainIntentViewModel
 import com.resukisu.resukisu.ui.viewmodel.PredictiveBackAnimation
 import com.resukisu.resukisu.ui.viewmodel.SettingsViewModel
 import com.resukisu.resukisu.ui.webui.WebUIActivity
@@ -131,27 +130,7 @@ fun NavContainer(
     val zipFileDetector = koinInject<ZipFileDetector>()
     val activity = LocalActivity.current as MainActivity
     val context = LocalContext.current
-    val mainIntentViewModel = koinViewModel<MainIntentViewModel>()
-    val mainIntentState by mainIntentViewModel.state.collectAsStateWithLifecycle()
-
-    LaunchedEffect(zipUri) {
-        if (zipUri.isNullOrEmpty()) return@LaunchedEffect
-
-        activity.lifecycleScope.launch(Dispatchers.IO) {
-            val zipFileInfos = zipUri.map { uri ->
-                zipFileDetector.parseZipFile(context, uri)
-            }.filter { it.type != ZipType.UNKNOWN }
-
-            withContext(Dispatchers.Main) {
-                if (zipFileInfos.isNotEmpty()) {
-                    pendingZipFiles.value = zipFileInfos
-                    showConfirmationDialog.value = true
-                } else {
-                    activity.finish()
-                }
-            }
-        }
-    }
+    val intentStateValue by intentState.collectAsState()
 
     val settings by settingsViewModel.uiState.collectAsStateWithLifecycle()
     val systemDensity = LocalDensity.current
@@ -173,6 +152,33 @@ fun NavContainer(
 
     val backStack = rememberNavBackStack<Route>(Route.Main)
     val navigator = remember(backStack) { Navigator(backStack) }
+
+    LaunchedEffect(zipUri, intentStateValue) {
+        if (zipUri.isNullOrEmpty()) return@LaunchedEffect
+
+        activity.lifecycleScope.launch(Dispatchers.IO) {
+            val zipFileInfos = zipUri.map { uri ->
+                zipFileDetector.parseZipFile(context, uri)
+            }.filter { it.type != ZipType.UNKNOWN }
+
+            withContext(Dispatchers.Main) {
+                if (zipFileInfos.isNotEmpty()) {
+                    val kernelFiles = zipFileInfos.filter { it.type == ZipType.KERNEL }
+                    val moduleFiles = zipFileInfos.filter { it.type == ZipType.MODULE }
+                    if (zipFileInfos.size == 1 && kernelFiles.size == 1 && moduleFiles.isEmpty()) {
+                        pendingZipFiles.value = emptyList()
+                        showConfirmationDialog.value = false
+                        navigator.push(Route.Install(kernelFiles.single().uri.toString()))
+                    } else {
+                        pendingZipFiles.value = zipFileInfos
+                        showConfirmationDialog.value = true
+                    }
+                } else {
+                    activity.finish()
+                }
+            }
+        }
+    }
     val onBack = remember(navigator) {
         {
             when (val top = navigator.current()) {
@@ -320,7 +326,7 @@ fun NavContainer(
 
                     when {
                         kernelUris.isNotEmpty() && moduleUris.isEmpty() -> {
-                            if (kernelUris.size == 1 && mainIntentState.rootAvailable) {
+                            if (kernelUris.size == 1) {
                                 withContext(Dispatchers.Main) {
                                     navigator.push(
                                         Route.Install(

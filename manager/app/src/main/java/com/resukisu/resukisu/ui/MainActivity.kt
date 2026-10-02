@@ -63,6 +63,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private val intentState = MutableStateFlow(0)
+    private val sharedZipUris = mutableStateOf<List<Uri>?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         try {
@@ -113,7 +114,7 @@ class MainActivity : ComponentActivity() {
             }
 
             // Check if launched with a ZIP file
-            val zipUri: ArrayList<Uri>? = when (intent?.action) {
+            sharedZipUris.value = when (intent?.action) {
                 Intent.ACTION_SEND -> {
                     val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
@@ -151,7 +152,7 @@ class MainActivity : ComponentActivity() {
                     when (val state = startupState.collectAsStateWithLifecycle().value) {
                         is StartupState.Failed -> StartupFailureContent(state.message)
                         else -> NavContainer(
-                            zipUri = zipUri,
+                            zipUri = sharedZipUris.value,
                             intentState = intentState,
                             settingsViewModel = settingsViewModel,
                             showConfirmationDialog = showConfirmationDialog,
@@ -168,8 +169,42 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        sharedZipUris.value = extractZipUris(intent)
         // Increment intentState to trigger LaunchedEffect re-execution
         intentState.value += 1
+    }
+
+    private fun extractZipUris(intent: Intent?): List<Uri>? = when (intent?.action) {
+        Intent.ACTION_SEND -> {
+            val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(Intent.EXTRA_STREAM)
+            }
+            uri?.let { listOf(it) }
+        }
+
+        Intent.ACTION_SEND_MULTIPLE -> {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
+            }
+        }
+
+        else -> when {
+            intent?.data != null -> listOf(intent.data!!)
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> {
+                intent?.getParcelableArrayListExtra("uris", Uri::class.java)
+            }
+
+            else -> {
+                @Suppress("DEPRECATION")
+                intent?.getParcelableArrayListExtra("uris")
+            }
+        }
     }
 
     private fun initializeViewModels() {

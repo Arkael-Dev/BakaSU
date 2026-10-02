@@ -309,7 +309,9 @@ mod android {
     }
 
     fn prepare(temp_dir: &TempDir, zip_path: &Path) -> Result<PathBuf> {
-        eprintln!("- Preparing AnyKernel3 package");
+        // These markers are part of the user-facing flash stream. Keep them on
+        // stdout so manager can render the same banner as module flashing.
+        println!("- Extracting AnyKernel3");
         let script = read_update_binary(zip_path)?;
         let patched = patch_update_binary(&script, Path::new(assets::MKBOOTFS_PATH))?;
         assets::ensure_binaries(false).context("failed to extract embedded binary assets")?;
@@ -335,7 +337,7 @@ mod android {
         zip_path: &Path,
         slot: Option<Slot>,
     ) -> Result<()> {
-        eprintln!("- Running AnyKernel3 installer");
+        println!("- Executing AnyKernel3 installer");
         let mut command = Command::new("/system/bin/sh");
         command
             .arg(update_binary)
@@ -412,7 +414,7 @@ mod android {
             cleanup_result,
             "failed to clean the AnyKernel3 working directory",
         )?;
-        eprintln!("- AnyKernel3 installation completed");
+        println!("- Done!");
         Ok(())
     }
 }

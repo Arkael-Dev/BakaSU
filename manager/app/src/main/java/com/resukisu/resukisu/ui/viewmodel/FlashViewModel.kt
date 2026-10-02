@@ -17,8 +17,16 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import org.koin.androidx.compose.koinViewModel
 
 enum class FlashingStatus { FLASHING, SUCCESS, FAILED }
+
+/** State consumed by the common flash output screen. */
+data class FlashState(
+    val status: FlashingStatus = FlashingStatus.FLASHING,
+    val output: String = "",
+    val showReboot: Boolean = false,
+)
 
 data class ModuleInstallStatus(
     val totalModules: Int = 0,

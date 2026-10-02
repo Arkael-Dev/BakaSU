@@ -101,6 +101,7 @@ import com.resukisu.resukisu.ui.util.showReplacingSnackbar
 import com.resukisu.resukisu.ui.viewmodel.FlashUiAction
 import com.resukisu.resukisu.ui.viewmodel.FlashViewModel
 import com.resukisu.resukisu.ui.viewmodel.FlashingStatus
+import com.resukisu.resukisu.ui.viewmodel.FlashState
 import com.resukisu.resukisu.ui.viewmodel.ModuleInstallStatus
 import com.resukisu.resukisu.ui.viewmodel.ModuleUiAction
 import com.resukisu.resukisu.ui.viewmodel.ModuleViewModel
@@ -413,128 +414,57 @@ fun FlashScreen(flashIt: FlashIt) {
         }
     }
 
-    val onBack: () -> Unit = {
-        val canGoBack = when (flashIt) {
-            is FlashIt.FlashModuleUpdate -> flashUiState.flashingStatus != FlashingStatus.FLASHING
-            else -> flashUiState.flashingStatus != FlashingStatus.FLASHING
-        }
-
-        if (canGoBack) {
-            if (isExternalInstall) {
-                (context as? ComponentActivity)?.finish()
-            } else {
-                if (flashIt is FlashIt.FlashModules || flashIt is FlashIt.FlashModuleUpdate) {
-                    viewModel.dispatch(ModuleUiAction.MarkNeedRefresh)
-                    viewModel.dispatch(ModuleUiAction.Refresh())
-                    navigator.replaceAll(listOf(Route.Module))
-                } else {
-                    viewModel.dispatch(ModuleUiAction.MarkNeedRefresh)
-                    viewModel.dispatch(ModuleUiAction.Refresh())
-                    navigator.pop()
-                }
-            }
-        }
+    BackHandler(flashUiState.flashingStatus == FlashingStatus.FLASHING) {
+        // deny back
     }
 
-    BackHandler(enabled = true) {
-        onBack()
+    BackHandler(flashUiState.flashingStatus != FlashingStatus.FLASHING && isExternalInstall) {
+        (context as? ComponentActivity)?.finish()
     }
 
-    Scaffold(
-        contentWindowInsets = adaptiveScaffoldWindowInsets(),
-        topBar = {
-            TopBar(
-                flashUiState.flashingStatus,
-                currentStatus,
-                onBack = onBack,
-                onSave = {
-                    scope.launch {
-                        val format = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.getDefault())
-                        val date = format.format(Date())
-                        val file = File(
-                            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                            "KernelSU_install_log_${date}.log"
-                        )
-                        file.writeText(logContent.toString())
-                        snackBarHost.showReplacingSnackbar(logSavedString.format(file.absolutePath))
-                    }
-                },
-                scrollBehavior = scrollBehavior
+    LaunchedEffect(flashUiState.flashingStatus) {
+        if (flashUiState.flashingStatus == FlashingStatus.FLASHING) return@LaunchedEffect
+
+        viewModel.dispatch(ModuleUiAction.MarkNeedRefresh)
+        viewModel.dispatch(ModuleUiAction.Refresh())
+    }
+
+    FlashOutputScreen(
+        state = FlashState(
+            status = flashUiState.flashingStatus,
+            output = text,
+            showReboot = showFloatAction,
+        ),
+        logFilePrefix = "KernelSU_install_log",
+        onReboot = {
+            flashViewModel.dispatch(
+                FlashUiAction.Reboot(
+                    allowSoftReboot = flashIt is FlashIt.FlashModule || flashIt is FlashIt.FlashModules || flashIt is FlashIt.FlashModuleUpdate
+                )
             )
         },
-        floatingActionButton = {
-            if (showFloatAction) {
-                ExtendedFloatingActionButton(
-                    onClick = {
-                        flashViewModel.dispatch(
-                            FlashUiAction.Reboot(
-                                allowSoftReboot = flashIt is FlashIt.FlashModule || flashIt is FlashIt.FlashModules || flashIt is FlashIt.FlashModuleUpdate
-                            )
-                        )
-                    },
-                    icon = {
-                        Icon(
-                            Icons.TwoTone.Refresh,
-                            contentDescription = stringResource(id = R.string.reboot)
-                        )
-                    },
-                    text = {
-                        Text(text = stringResource(id = R.string.reboot))
-                    },
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    expanded = true
-                )
+        onBack = {
+            if (flashUiState.flashingStatus == FlashingStatus.FLASHING) return@FlashOutputScreen
+
+            if (isExternalInstall) {
+                (context as? ComponentActivity)?.finish()
+                return@FlashOutputScreen
             }
+
+            navigator.pop()
         },
-        snackbarHost = { SwipeableSnackbarHost(hostState = snackBarHost) },
-        containerColor = Color.Transparent,
-        contentColor = MaterialTheme.colorScheme.onSurface
-    ) { innerPadding ->
-        KeyEventBlocker {
-            it.key == Key.VolumeDown || it.key == Key.VolumeUp
-        }
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize(1f)
-                .nestedScroll(scrollBehavior.nestedScrollConnection)
-                .blurSource(),
-        ) {
-            Spacer(modifier = Modifier.height(innerPadding.calculateTopPadding()))
-
+        headerContent = {
             if (flashIt is FlashIt.FlashModules) {
                 ModuleInstallProgressBar(
                     currentIndex = flashIt.currentIndex + 1,
                     totalCount = flashIt.uris.size,
                     currentModuleName = currentStatus.currentModuleName,
                     status = flashUiState.flashingStatus,
-                    failedModules = currentStatus.failedModules
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .verticalScroll(scrollState)
-            ) {
-                LaunchedEffect(text) {
-                    scrollState.animateScrollTo(scrollState.maxValue)
-                }
-                Text(
-                    modifier = Modifier.padding(16.dp),
-                    text = text,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontFamily = MonospaceFontFamily(),
-                    color = MaterialTheme.colorScheme.onSurface
+                    failedModules = currentStatus.failedModules,
                 )
             }
-            Spacer(modifier = Modifier.height(innerPadding.calculateBottomPadding()))
-        }
-    }
+        },
+    )
 }
 
 private const val JAILBREAK_WARNING_COUNTDOWN = 10

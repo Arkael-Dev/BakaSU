@@ -1,40 +1,19 @@
 package com.resukisu.resukisu.ui.screen.kernelFlash
 
-import android.os.Environment
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.add
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.twotone.ArrowBack
-import androidx.compose.material.icons.twotone.CheckCircle
-import androidx.compose.material.icons.twotone.Error
-import androidx.compose.material.icons.twotone.Refresh
 import androidx.compose.material.icons.twotone.Save
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.material3.rememberTopAppBarState
@@ -42,49 +21,39 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.resukisu.resukisu.R
 import com.resukisu.resukisu.domain.model.FlashProgress
-import com.resukisu.resukisu.ui.component.KeyEventBlocker
-import com.resukisu.resukisu.ui.component.SwipeableSnackbarHost
+import com.resukisu.resukisu.ui.component.settings.AppBackButton
 import com.resukisu.resukisu.ui.navigation.LocalNavigator
+import com.resukisu.resukisu.ui.screen.FlashOutputScreen
 import com.resukisu.resukisu.ui.theme.CardConfig
-import com.resukisu.resukisu.ui.theme.MonospaceFontFamily
+import com.resukisu.resukisu.ui.theme.ThemeConfig
+import com.resukisu.resukisu.ui.theme.blurEffect
 import com.resukisu.resukisu.ui.util.LocalSnackbarHost
-import com.resukisu.resukisu.ui.util.adaptiveScaffoldWindowInsets
 import com.resukisu.resukisu.ui.util.showReplacingSnackbar
+import com.resukisu.resukisu.ui.viewmodel.FlashState
+import com.resukisu.resukisu.ui.viewmodel.FlashingStatus
 import com.resukisu.resukisu.ui.viewmodel.KernelFlashUiAction
 import com.resukisu.resukisu.ui.viewmodel.KernelFlashUiEvent
 import com.resukisu.resukisu.ui.viewmodel.KernelFlashViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
-import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * @author ShirkNeko
  * @date 2025/5/31.
  */
-/**
- * Kernel刷写界面
- */
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun KernelFlashScreen(
     kernelUri: String,
@@ -94,7 +63,7 @@ fun KernelFlashScreen(
     val context = LocalContext.current
 
     val scrollState = rememberScrollState()
-    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
     val snackBarHost = LocalSnackbarHost.current
     val scope = rememberCoroutineScope()
     val viewModel = koinViewModel<KernelFlashViewModel>()
@@ -131,274 +100,27 @@ fun KernelFlashScreen(
         }
     }
 
-            // 监听日志更新
     val navigator = LocalNavigator.current
 
-    val onBack: () -> Unit = {
-        if (!flashState.isFlashing || flashState.isCompleted || flashState.error.isNotEmpty()) {
-            // 清理全局状态
-            navigator.pop()
-        }
+    BackHandler(flashState.isFlashing) {
+        // deny
     }
 
-    BackHandler(enabled = true) {
-        onBack()
-    }
-
-    Scaffold(
-        topBar = {
-            TopBar(
-                flashState = flashState,
-                onBack = onBack,
-                onSave = {
-                    scope.launch {
-                        val format = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.getDefault())
-                        val date = format.format(Date())
-                        val file = File(
-                            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                            "KernelSU_kernel_flash_log_${date}.log"
-                        )
-                        file.writeText(uiState.fullLog)
-                        snackBarHost.showReplacingSnackbar(logSavedString.format(file.absolutePath))
-                    }
-                },
-                scrollBehavior = scrollBehavior
-            )
+    val commonState = FlashState(
+        status = when {
+            flashState.error.isNotEmpty() -> FlashingStatus.FAILED
+            flashState.isCompleted -> FlashingStatus.SUCCESS
+            else -> FlashingStatus.FLASHING
         },
-        floatingActionButton = {
-            if (flashState.isCompleted) {
-                ExtendedFloatingActionButton(
-                    onClick = {
-                        viewModel.dispatch(KernelFlashUiAction.Reboot)
-                    },
-                    icon = {
-                        Icon(
-                            Icons.TwoTone.Refresh,
-                            contentDescription = stringResource(id = R.string.reboot)
-                        )
-                    },
-                    text = {
-                        Text(text = stringResource(id = R.string.reboot))
-                    },
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    expanded = true
-                )
-            }
-        },
-        snackbarHost = { SwipeableSnackbarHost(hostState = snackBarHost) },
-        contentWindowInsets = adaptiveScaffoldWindowInsets(),
-        containerColor = MaterialTheme.colorScheme.background
-    ) { innerPadding ->
-        KeyEventBlocker {
-            it.key == Key.VolumeDown || it.key == Key.VolumeUp
-        }
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .nestedScroll(scrollBehavior.nestedScrollConnection),
-        ) {
-            FlashProgressIndicator(flashState)
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .verticalScroll(scrollState)
-            ) {
-                LaunchedEffect(logText) {
-                    scrollState.animateScrollTo(scrollState.maxValue)
-                }
-                Text(
-                    modifier = Modifier.padding(16.dp),
-                    text = logText,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontFamily = MonospaceFontFamily(),
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun FlashProgressIndicator(
-    flashState: FlashProgress
-) {
-    val progressColor = when {
-        flashState.error.isNotEmpty() -> MaterialTheme.colorScheme.error
-        flashState.isCompleted -> MaterialTheme.colorScheme.tertiary
-        else -> MaterialTheme.colorScheme.primary
-    }
-
-    val progress = animateFloatAsState(
-        targetValue = flashState.progress,
-        label = "FlashProgress"
+        output = logText,
+        showReboot = flashState.isCompleted,
     )
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceBright
-        )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = when {
-                        flashState.error.isNotEmpty() -> stringResource(R.string.flash_failed)
-                        flashState.isCompleted -> stringResource(R.string.flash_success)
-                        else -> stringResource(R.string.flashing)
-                    },
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = progressColor
-                )
-
-                when {
-                    flashState.error.isNotEmpty() -> {
-                        Icon(
-                            imageVector = Icons.TwoTone.Error,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.error
-                        )
-                    }
-                    flashState.isCompleted -> {
-                        Icon(
-                            imageVector = Icons.TwoTone.CheckCircle,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.tertiary
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            if (flashState.currentStep.isNotEmpty()) {
-                Text(
-                    text = flashState.currentStep,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-
-            LinearWavyProgressIndicator(
-                progress = { progress.value },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp),
-                color = progressColor,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant
-            )
-
-            if (flashState.error.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.TwoTone.Error,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Text(
-                    text = flashState.error,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
-                            shape = MaterialTheme.shapes.small
-                        )
-                        .padding(8.dp)
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun TopBar(
-    flashState: FlashProgress,
-    onBack: () -> Unit,
-    onSave: () -> Unit = {},
-    scrollBehavior: TopAppBarScrollBehavior? = null
-) {
-    val cardConfig: CardConfig = koinInject()
-    val statusColor = when {
-        flashState.error.isNotEmpty() -> MaterialTheme.colorScheme.error
-        flashState.isCompleted -> MaterialTheme.colorScheme.tertiary
-        else -> MaterialTheme.colorScheme.primary
-    }
-
-    val colorScheme = MaterialTheme.colorScheme
-    val cardColor = if (cardConfig.isCustomBackgroundEnabled) {
-        colorScheme.surfaceContainerLow
-    } else {
-        colorScheme.background
-    }
-    val cardAlpha = cardConfig.cardAlpha
-
-    TopAppBar(
-        title = {
-            Text(
-                text = stringResource(
-                    when {
-                        flashState.error.isNotEmpty() -> R.string.flash_failed
-                        flashState.isCompleted -> R.string.flash_success
-                        else -> R.string.kernel_flashing
-                    }
-                ),
-                style = MaterialTheme.typography.titleLarge,
-                color = statusColor
-            )
+    FlashOutputScreen(
+        state = commonState,
+        onBack = {
+            if (!flashState.isFlashing) navigator.pop()
         },
-        navigationIcon = {
-            IconButton(onClick = onBack) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.TwoTone.ArrowBack,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurface
-                )
-            }
-        },
-        colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = cardColor.copy(alpha = cardAlpha),
-            scrolledContainerColor = cardColor.copy(alpha = cardAlpha)
-        ),
-        actions = {
-            IconButton(onClick = onSave) {
-                Icon(
-                    imageVector = Icons.TwoTone.Save,
-                    contentDescription = stringResource(id = R.string.save_log),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        },
-        windowInsets = adaptiveScaffoldWindowInsets(includeBottom = false),
-        scrollBehavior = scrollBehavior
+        logFilePrefix = "KernelSU_kernel_flash_log",
+        onReboot = { viewModel.dispatch(KernelFlashUiAction.Reboot) },
     )
 }
