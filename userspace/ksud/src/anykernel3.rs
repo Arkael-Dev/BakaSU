@@ -7,7 +7,6 @@ use std::{
 
 use anyhow::{Result, bail};
 use clap::ValueEnum;
-use crate::banner;
 
 const UPDATE_BINARY_ENTRY: &str = "META-INF/com/google/android/update-binary";
 const PATCH_MARKER: &[u8] = b"chmod -R 755 tools bin;";
@@ -203,7 +202,7 @@ mod android {
             forward_installer_output, installer_arguments, patch_update_binary, run_then_restore,
             select_update_binary,
         },
-        assets, defs,
+        assets, banner, defs,
     };
 
     const MAX_UPDATE_BINARY_SIZE: u64 = 4 * 1024 * 1024;
