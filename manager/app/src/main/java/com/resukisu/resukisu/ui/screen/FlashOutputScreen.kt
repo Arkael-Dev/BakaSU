@@ -73,7 +73,12 @@ fun FlashOutputScreen(
     val savedTemplate = stringResource(R.string.log_saved)
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(
+        rememberTopAppBarState(
+            initialHeightOffset = -154f,
+            initialHeightOffsetLimit = -154f // from debugger
+        )
+    )
     val canGoBack = state.status != FlashingStatus.FLASHING
 
     Scaffold(

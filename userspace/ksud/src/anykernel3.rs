@@ -7,6 +7,7 @@ use std::{
 
 use anyhow::{Result, bail};
 use clap::ValueEnum;
+use crate::banner;
 
 const UPDATE_BINARY_ENTRY: &str = "META-INF/com/google/android/update-binary";
 const PATCH_MARKER: &[u8] = b"chmod -R 755 tools bin;";
@@ -309,8 +310,7 @@ mod android {
     }
 
     fn prepare(temp_dir: &TempDir, zip_path: &Path) -> Result<PathBuf> {
-        // These markers are part of the user-facing flash stream. Keep them on
-        // stdout so manager can render the same banner as module flashing.
+        println!("{}", banner::print_banner());
         println!("- Extracting AnyKernel3");
         let script = read_update_binary(zip_path)?;
         let patched = patch_update_binary(&script, Path::new(assets::MKBOOTFS_PATH))?;
