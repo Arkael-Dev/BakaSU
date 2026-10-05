@@ -98,7 +98,7 @@ fun InstallScreen(
     val navigator = LocalNavigator.current
     val isGKI = environment.isGki
 
-    LaunchedEffect(preselectedKernelUri) {
+    LaunchedEffect(Unit) {
         if (preselectedKernelUri != null) pagerState.scrollToPage(1)
     }
 
