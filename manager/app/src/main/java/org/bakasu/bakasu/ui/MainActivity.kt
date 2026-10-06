@@ -2,7 +2,6 @@ package org.bakasu.bakasu.ui
 
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
@@ -14,14 +13,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import org.bakasu.bakasu.domain.model.StartupState
 import org.bakasu.bakasu.domain.usecase.ApplyLanguageUseCase
@@ -29,7 +24,6 @@ import org.bakasu.bakasu.domain.usecase.EnsureManagerInstalledUseCase
 import org.bakasu.bakasu.domain.usecase.ObserveStartupStateUseCase
 import org.bakasu.bakasu.ui.activity.util.ThemeChangeContentObserver
 import org.bakasu.bakasu.ui.activity.util.ThemeUtils
-import org.bakasu.bakasu.ui.component.ZipFileInfo
 import org.bakasu.bakasu.ui.theme.KernelSUTheme
 import org.bakasu.bakasu.ui.viewmodel.HomeUiAction
 import org.bakasu.bakasu.ui.viewmodel.HomeViewModel
@@ -54,9 +48,6 @@ class MainActivity : ComponentActivity() {
     private val applyLanguage: ApplyLanguageUseCase by inject()
     private val startupState by lazy { observeStartupState() }
 
-    private var showConfirmationDialog by mutableStateOf(false)
-    private var pendingZipFiles by mutableStateOf<List<ZipFileInfo>>(emptyList())
-
     private lateinit var themeChangeObserver: ThemeChangeContentObserver
     private var isInitialized = false
 
@@ -64,8 +55,7 @@ class MainActivity : ComponentActivity() {
         super.attachBaseContext(newBase?.let(applyLanguage::invoke))
     }
 
-    private val intentState = MutableStateFlow(0)
-    private val sharedZipUris = mutableStateOf<List<Uri>?>(null)
+    private val intentChannel = Channel<Intent>(capacity = Channel.BUFFERED)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         try {
@@ -116,59 +106,13 @@ class MainActivity : ComponentActivity() {
                 isInitialized = true
             }
 
-            // Check if launched with a ZIP file
-            sharedZipUris.value = when (intent?.action) {
-                Intent.ACTION_SEND -> {
-                    val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
-                    } else {
-                        @Suppress("DEPRECATION")
-                        intent.getParcelableExtra(Intent.EXTRA_STREAM)
-                    }
-                    uri?.let { arrayListOf(it) }
-                }
-
-                Intent.ACTION_SEND_MULTIPLE -> {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
-                    } else {
-                        @Suppress("DEPRECATION")
-                        intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
-                    }
-                }
-
-                else -> when {
-                    intent?.data != null -> arrayListOf(intent.data!!)
-
-                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> {
-                        intent.getParcelableArrayListExtra("uris", Uri::class.java)
-                    }
-
-                    else -> {
-                        @Suppress("DEPRECATION")
-                        intent.getParcelableArrayListExtra("uris")
-                    }
-                }
-            }
+            if (savedInstanceState == null) intent?.let { intentChannel.trySend(it) }
 
             setContent {
                 KernelSUTheme {
                     when (val state = startupState.collectAsStateWithLifecycle().value) {
                         is StartupState.Failed -> StartupFailureContent(state.message)
-
-                        else -> {
-                            val intentId by intentState.collectAsState()
-
-                            NavContainer(
-                                zipUri = sharedZipUris.value,
-                                intentId = intentId,
-                                settingsViewModel = settingsViewModel,
-                                showConfirmationDialog = showConfirmationDialog,
-                                pendingZipFiles = pendingZipFiles,
-                                onShowConfirmationDialogChange = { showConfirmationDialog = it },
-                                onPendingZipFilesChange = { pendingZipFiles = it },
-                            )
-                        }
+                        else -> NavContainer(settingsViewModel, intentChannel)
                     }
                 }
             }
@@ -180,9 +124,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        sharedZipUris.value = extractZipUris(intent)
-        // Increment intentState to trigger LaunchedEffect re-execution
-        intentState.value += 1
+        intentChannel.trySend(intent)
     }
 
     private fun extractZipUris(intent: Intent?): List<Uri>? = when (intent?.action) {

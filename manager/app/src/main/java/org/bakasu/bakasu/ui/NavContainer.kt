@@ -2,7 +2,6 @@ package org.bakasu.bakasu.ui
 
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.ManagedActivityResultLauncher
@@ -46,25 +45,20 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.core.app.ActivityCompat
-import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.navigationevent.NavigationEventInfo
 import androidx.navigationevent.compose.NavigationBackHandler
 import androidx.navigationevent.compose.rememberNavigationEventState
-import kotlinx.coroutines.Dispatchers
+import kotlin.coroutines.resume
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 import org.bakasu.bakasu.ui.activity.PermissionRequestInterface
 import org.bakasu.bakasu.ui.animation.predictiveback.installerNavTransition
-import org.bakasu.bakasu.ui.component.InstallConfirmationDialog
-import org.bakasu.bakasu.ui.component.ZipFileDetector
-import org.bakasu.bakasu.ui.component.ZipFileInfo
-import org.bakasu.bakasu.ui.component.ZipType
-import org.bakasu.bakasu.ui.navigation.HandleDeepLink
+import org.bakasu.bakasu.ui.navigation.IntentDispatcher
 import org.bakasu.bakasu.ui.navigation.LocalNavigator
 import org.bakasu.bakasu.ui.navigation.Navigator
 import org.bakasu.bakasu.ui.navigation.Route
@@ -98,12 +92,9 @@ import org.bakasu.bakasu.ui.util.LocalPortraitState
 import org.bakasu.bakasu.ui.util.LocalSnackbarHost
 import org.bakasu.bakasu.ui.util.LocalStretchOverscrollCompensationState
 import org.bakasu.bakasu.ui.util.rememberDeviceCornerRadius
-import org.bakasu.bakasu.ui.viewmodel.MainIntentViewModel
 import org.bakasu.bakasu.ui.viewmodel.PredictiveBackAnimation
 import org.bakasu.bakasu.ui.viewmodel.SettingsViewModel
-import org.bakasu.bakasu.ui.webui.WebUIActivity
 import org.koin.compose.koinInject
-import org.koin.compose.viewmodel.koinViewModel
 import top.yukonga.miuix.kmp.blur.LayerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.nav.core.NavCornerClipMode
@@ -115,40 +106,13 @@ import top.yukonga.miuix.kmp.shader.isRenderEffectSupported
 
 @Composable
 fun NavContainer(
-    zipUri: List<Uri>?,
-    intentId: Int,
     settingsViewModel: SettingsViewModel,
-    showConfirmationDialog: Boolean,
-    pendingZipFiles: List<ZipFileInfo>,
-    onShowConfirmationDialogChange: (Boolean) -> Unit,
-    onPendingZipFilesChange: (List<ZipFileInfo>) -> Unit,
+    intentChannel: Channel<Intent>,
 ) {
     val themeConfig: ThemeConfig = koinInject()
     val backgroundRenderState = LocalBackgroundRenderState.current
-    val zipFileDetector = koinInject<ZipFileDetector>()
     val activity = LocalActivity.current as MainActivity
     val context = LocalContext.current
-    val mainIntentViewModel = koinViewModel<MainIntentViewModel>()
-    val mainIntentState by mainIntentViewModel.state.collectAsStateWithLifecycle()
-
-    LaunchedEffect(zipUri) {
-        if (zipUri.isNullOrEmpty()) return@LaunchedEffect
-
-        activity.lifecycleScope.launch(Dispatchers.IO) {
-            val zipFileInfos = zipUri.map { uri ->
-                zipFileDetector.parseZipFile(context, uri)
-            }.filter { it.type != ZipType.UNKNOWN }
-
-            withContext(Dispatchers.Main) {
-                if (zipFileInfos.isNotEmpty()) {
-                    onPendingZipFilesChange(zipFileInfos)
-                    onShowConfirmationDialogChange(true)
-                } else {
-                    activity.finish()
-                }
-            }
-        }
-    }
 
     val settings by settingsViewModel.uiState.collectAsStateWithLifecycle()
     val systemDensity = LocalDensity.current
@@ -295,58 +259,7 @@ fun NavContainer(
         LocalNavigator provides navigator,
         LocalDensity provides density,
     ) {
-        HandleDeepLink(
-            intentId = intentId,
-        )
-
-        ShortcutIntentHandler(
-            intentId = intentId,
-        )
-
-        InstallConfirmationDialog(
-            show = showConfirmationDialog,
-            zipFiles = pendingZipFiles,
-            onConfirm = { confirmedFiles ->
-                onShowConfirmationDialogChange(false)
-                activity.lifecycleScope.launch(Dispatchers.IO) {
-                    val moduleUris =
-                        confirmedFiles.filter { it.type == ZipType.MODULE }
-                            .map { it.uri }
-                    val kernelUris =
-                        confirmedFiles.filter { it.type == ZipType.KERNEL }
-                            .map { it.uri }
-
-                    when {
-                        kernelUris.isNotEmpty() && moduleUris.isEmpty() -> {
-                            if (kernelUris.size == 1 && mainIntentState.rootAvailable) {
-                                withContext(Dispatchers.Main) {
-                                    navigator.push(
-                                        Route.Install(
-                                            preselectedKernelUri = kernelUris.first()
-                                                .toString(),
-                                        ),
-                                    )
-                                }
-                            }
-                        }
-
-                        moduleUris.isNotEmpty() -> {
-                            withContext(Dispatchers.Main) {
-                                navigator.push(
-                                    Route.Flash.modules(moduleUris.map(Uri::toString)),
-                                )
-                            }
-                        }
-                    }
-                }
-            },
-            onDismiss = {
-                onShowConfirmationDialogChange(false)
-                onPendingZipFilesChange(emptyList())
-                activity.finish()
-            },
-        )
-
+        IntentDispatcher(intentChannel)
         val navCornerRadius = rememberDeviceCornerRadius(defaultRadius = 0.dp)
         val roundAllCorners =
             settings.predictiveBackAnimation == PredictiveBackAnimation.AOSP ||
@@ -522,7 +435,7 @@ fun NavContainer(
                     backgroundRenderState = backgroundRenderState,
                     useBlur = useBlur,
                 ) {
-                    ExecuteModuleActionScreen(key.moduleId)
+                    ExecuteModuleActionScreen(key.moduleId, key.fromShortcut)
                 }
             }
             entry<Route.Home>(swipeDismiss = NavSwipeDirection.None) {
@@ -853,42 +766,5 @@ fun rememberMaterial3BlurBackdrop(
         )
 
         drawContent()
-    }
-}
-
-@Composable
-private fun ShortcutIntentHandler(
-    intentId: Int,
-) {
-    val navigator = LocalNavigator.current
-    val activity = LocalActivity.current ?: return
-    val context = LocalContext.current
-    LaunchedEffect(intentId) {
-        val intent = activity.intent
-        val type = intent?.getStringExtra("shortcut_type") ?: return@LaunchedEffect
-        when (type) {
-            "module_action" -> {
-                val moduleId = intent.getStringExtra("module_id") ?: return@LaunchedEffect
-                navigator.push(Route.ExecuteModuleAction(moduleId))
-            }
-
-            "module_webui" -> {
-                val moduleId = intent.getStringExtra("module_id") ?: return@LaunchedEffect
-                val moduleName = intent.getStringExtra("module_name") ?: moduleId
-
-                val webIntent = Intent(context, WebUIActivity::class.java)
-                    .setData("kernelsu://webui/$moduleId".toUri())
-                    .putExtra("id", moduleId)
-                    .putExtra("name", moduleName)
-                    .putExtra("from_webui_shortcut", true)
-                    .addFlags(
-                        Intent.FLAG_ACTIVITY_NEW_TASK or
-                            Intent.FLAG_ACTIVITY_CLEAR_TASK,
-                    )
-                context.startActivity(webIntent)
-            }
-
-            else -> return@LaunchedEffect
-        }
     }
 }

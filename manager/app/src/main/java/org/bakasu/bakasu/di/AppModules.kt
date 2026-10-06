@@ -48,7 +48,7 @@ import org.bakasu.bakasu.data.susfs.SuSFSConfigHelper
 import org.bakasu.bakasu.data.susfs.SuSFSRepository
 import org.bakasu.bakasu.data.system.HomeRuntimeRepository
 import org.bakasu.bakasu.data.system.HomeStateRepository
-import org.bakasu.bakasu.data.text.PinyinUtil
+import org.bakasu.bakasu.data.text.HanziToPinyin
 import org.bakasu.bakasu.data.theme.MonetCompatColorSource
 import org.bakasu.bakasu.data.theme.ThemeRepository
 import org.bakasu.bakasu.data.update.ManagerUpdateRepository
@@ -290,7 +290,7 @@ val repositoryModule = module {
     singleOf(::Shortcut)
     singleOf(::MonetColorsProvider)
     singleOf(::ZipFileDetector)
-    singleOf(::PinyinUtil) bind TextTransliterator::class
+    single { HanziToPinyin.create() } bind TextTransliterator::class
 }
 
 val useCaseModule = module {
